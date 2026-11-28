@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-euromap77}
+      POSTGRES_USER: ${POSTGRES_USER:-gateway}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gateway_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gateway} -d ${POSTGRES_DB:-euromap77}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  sim_press:
+    build: ./services/sim_press
+    environment:
+      OPCUA_ENDPOINT: opc.tcp://0.0.0.0:4840/euromap77/imm01/
+      MACHINE_ID: ${MACHINE_ID:-IMM-01}
+      CYCLE_INTERVAL_S: ${POLL_INTERVAL_S:-2.0}
+    ports:
+      - "4840:4840"
+
+  ingestor:
+    build: ./services/ingestor
+    depends_on:
+      postgres:
+        condition: service_healthy
+      sim_press:
+        condition: service_started
+    environment:
+      OPCUA_URL: opc.tcp://sim_press:4840/euromap77/imm01/
+      DATABASE_URL: ${DATABASE_URL:-postgresql://gateway:gateway_password@postgres:5432/euromap77}
+      MACHINE_ID: ${MACHINE_ID:-IMM-01}
+      POLL_INTERVAL_S: ${POLL_INTERVAL_S:-2.0}
+
+  api:
+    build: ./services/api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://gateway:gateway_password@postgres:5432/euromap77}
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:
